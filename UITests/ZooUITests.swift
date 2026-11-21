@@ -242,14 +242,14 @@ final class ZooUITests: XCTestCase {
     }
 
     @MainActor
-    func testChannelSectionsCollapseIndependentlyWithThreads() {
-        let app = launchWorkspace(threadDirectory: true, chatDetails: true)
+    func testChannelSectionsCollapseIndependentlyWithoutThreads() {
+        let app = launchWorkspace(joinedThread: true, chatDetails: true)
         let pinned = app.buttons["channel-section-pinned"]
         let list = app.buttons["channel-section-list"]
         let general = app.buttons["channel-11111111-1111-4111-8111-111111111111"]
         let development = app.buttons["channel-55555555-5555-4555-8555-555555555555"]
         let thread = app.buttons["channel-thread-22222222-2222-4222-8222-222222222222"]
-        XCTAssertTrue(thread.waitForExistence(timeout: 5))
+        XCTAssertFalse(thread.exists)
 
         pinned.tap()
         XCTAssertTrue(general.waitForNonExistence(timeout: 5))
@@ -278,7 +278,7 @@ final class ZooUITests: XCTestCase {
         XCTAssertEqual(pinned.value as? String, "折り畳み中")
         pinned.tap()
         XCTAssertTrue(general.waitForExistence(timeout: 5))
-        XCTAssertTrue(thread.waitForExistence(timeout: 5))
+        XCTAssertFalse(thread.exists)
         capture(app, name: "セクションを再び展開した一覧")
     }
 
@@ -1084,7 +1084,7 @@ final class ZooUITests: XCTestCase {
 
     @MainActor
     private func launchWorkspace(failingSend: Bool = false, liveMessage: Bool = false, longHistory: Bool = false,
-                                 threadDirectory: Bool = false, chatDetails: Bool = false, video: Bool = false, readRetry: Bool = false, dark: Bool = false, pinFailure: Bool = false, call: Bool = false, attachments: Bool = false,
+                                 joinedThread: Bool = false, chatDetails: Bool = false, video: Bool = false, readRetry: Bool = false, dark: Bool = false, pinFailure: Bool = false, call: Bool = false, attachments: Bool = false,
                                  pdf: Bool = false, pdfFailure: Bool = false, sensitivePDF: Bool = false, callInviteFailure: Bool = false,
                                  tallImage: Bool = false, wrappedReactions: Bool = false, retainedMessages: Bool = false,
                                  variedHistory: Bool = false, longThread: Bool = false, largeText: Bool = false,
@@ -1112,7 +1112,7 @@ final class ZooUITests: XCTestCase {
         if pdfFailure { app.launchArguments.append("--uitesting-pdf-failure") }
         if sensitivePDF { app.launchArguments.append("--uitesting-sensitive-pdf") }
         if chatDetails { app.launchArguments.append("--uitesting-chat-details") }
-        if threadDirectory { app.launchArguments.append("--uitesting-thread-directory") }
+        if joinedThread { app.launchArguments.append("--uitesting-joined-thread") }
         if longThread { app.launchArguments.append("--uitesting-long-thread") }
         if shortThread { app.launchArguments.append("--uitesting-short-thread") }
         if largeText { app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"] }
@@ -1697,10 +1697,24 @@ final class ZooUITests: XCTestCase {
         app.buttons["create-channel"].tap()
         XCTAssertTrue(app.navigationBars["新しい会話"].waitForExistence(timeout: 5))
         selectTab("プロフィール", in: app)
+        capture(app, name: "プロフィールの外部リンク")
         app.buttons["workspace-settings"].tap()
-        app.buttons["logout"].tap()
-        let confirmation = app.sheets.buttons["ログアウト"]
+        let logout = app.buttons["logout"]
+        if !logout.isHittable { app.swipeUp() }
+        XCTAssertTrue(logout.wait(for: \.isHittable, toEqual: true, timeout: 5))
+        capture(app, name: "設定の外部リンク")
+        let sourceFrame = logout.frame
+        logout.tap()
+        let confirmation = app.buttons.matching(NSPredicate(format: "label == 'ログアウト' AND identifier != 'logout'")).firstMatch
         XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        let title = app.staticTexts["ログアウトしますか？"]
+        let dialogFrame = title.frame.union(confirmation.frame)
+        XCTAssertTrue(dialogFrame.insetBy(dx: -32, dy: -32).intersects(sourceFrame), "確認表示を押したボタンの位置に表示する")
+        capture(app, name: "ログアウトボタンに紐づく確認表示")
+        app.navigationBars["設定"].staticTexts["設定"].tap()
+        XCTAssertTrue(confirmation.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(logout.isEnabled)
+        logout.tap()
         confirmation.tap()
         XCTAssertTrue(app.buttons["login"].waitForExistence(timeout: 5))
     }
@@ -1732,11 +1746,17 @@ final class ZooUITests: XCTestCase {
     }
 
     @MainActor
-    func testJoinedThreadOpensFromChannelDirectory() {
-        let app = launchWorkspace(threadDirectory: true)
+    func testChannelDirectoryHidesThreadsAndChannelReplyLinkOpensThread() {
+        let app = launchWorkspace(joinedThread: true)
         let entry = app.buttons["channel-thread-22222222-2222-4222-8222-222222222222"]
-        XCTAssertTrue(entry.waitForExistence(timeout: 5))
-        entry.tap()
+        let general = app.buttons["channel-11111111-1111-4111-8111-111111111111"]
+        XCTAssertFalse(entry.exists)
+        XCTAssertFalse(app.buttons["channel-thread-load-more"].exists)
+        capture(app, name: "スレッドを表示しないチャンネル一覧")
+        general.tap()
+        let replies = app.buttons["thread-replies-22222222-2222-4222-8222-222222222222"]
+        XCTAssertTrue(replies.waitForExistence(timeout: 5))
+        replies.tap()
         let thread = app.navigationBars["スレッド"]
         XCTAssertTrue(thread.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["参加中のスレッドです"].waitForExistence(timeout: 5))
@@ -1755,7 +1775,9 @@ final class ZooUITests: XCTestCase {
         let channel = app.navigationBars["一般"]
         XCTAssertTrue(channel.waitForExistence(timeout: 5))
         channel.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(entry.waitForExistence(timeout: 5))
+        XCTAssertTrue(general.waitForExistence(timeout: 5))
+        XCTAssertFalse(entry.exists)
+        XCTAssertFalse(app.buttons["channel-thread-load-more"].exists)
     }
 
     @MainActor

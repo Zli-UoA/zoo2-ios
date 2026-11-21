@@ -19,8 +19,10 @@ struct ChannelDetailsView: View {
             AppForm {
                 Section("会話について") {
                     Label(workspace.name(for: channel), systemImage: channel.symbol).font(.headline)
-                    if let description = channel.description, !description.isEmpty {
+                    if let description = channel.description, !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text(description).textSelection(.enabled)
+                    } else {
+                        LabeledContent("説明", value: "なし")
                     }
                     LabeledContent("種類", value: channel.is_dm ? "ダイレクトメッセージ" : channel.is_private ? "非公開チャンネル" : "公開チャンネル")
                     if channel.archive_at != nil { Label("アーカイブ済み", systemImage: "archivebox") }
@@ -45,6 +47,11 @@ struct ChannelDetailsView: View {
                             .accessibilityIdentifier("edit-channel")
                         Button("チャンネルをアーカイブ", systemImage: "archivebox", role: .destructive) { confirmingArchive = true }
                             .accessibilityIdentifier("archive-channel")
+                            .confirmationDialog("このチャンネルをアーカイブしますか？", isPresented: $confirmingArchive, titleVisibility: .visible) {
+                                Button("アーカイブ", role: .destructive) { archiving = true }
+                            } message: {
+                                Text("新しい投稿と通話を停止します。過去のメッセージは引き続き閲覧できます。")
+                            }
                     }
                     .disabled(workspace.updatingChannels.contains(channel.id))
                 }
@@ -63,11 +70,6 @@ struct ChannelDetailsView: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { AppCloseButton { dismiss() }.disabled(archiving) } }
             .task { await workspace.loadMembers(channelID: channel.id) }
             .sheet(isPresented: $editing) { ChannelEditor(channel: currentChannel, workspace: workspace) }
-            .confirmationDialog("このチャンネルをアーカイブしますか？", isPresented: $confirmingArchive, titleVisibility: .visible) {
-                Button("アーカイブ", role: .destructive) { archiving = true }
-            } message: {
-                Text("新しい投稿と通話を停止します。過去のメッセージは引き続き閲覧できます。")
-            }
             .task(id: archiving) {
                 guard archiving else { return }
                 defer { archiving = false }

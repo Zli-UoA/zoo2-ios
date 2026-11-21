@@ -4,16 +4,11 @@ struct ConversationDirectory: View {
     let workspace: WorkspaceStore
     let directMessages: Bool
     var isSidebar = false
-    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
     @State private var search = ""
     @State private var unreadOnly = false
     @State private var pinnedExpanded = true
     @State private var listExpanded = true
-
-    private var showsThreadIndex: Bool {
-        !directMessages && workspace.selectedTab == .channels && (isSidebar || workspace.channelPath.isEmpty) && scenePhase == .active
-    }
 
     private var canReopenChannel: Bool { !isSidebar && !directMessages && workspace.resumableChannel != nil }
 
@@ -61,10 +56,6 @@ struct ConversationDirectory: View {
             if let error = workspace.pinsError {
                 Text(error).font(.caption).foregroundStyle(.secondary)
             }
-            if !directMessages {
-                ChannelThreadPagination(store: workspace.threads)
-                    .listRowSeparator(.hidden)
-            }
         }
         .simultaneousGesture(DragGesture(minimumDistance: 30).onEnded { drag in
             guard canReopenChannel, drag.translation.width < -80,
@@ -86,15 +77,20 @@ struct ConversationDirectory: View {
                         .frame(maxWidth: .infinity, alignment: .leading).padding(12)
                         .background(.regularMaterial)
                 }
+                if let error = workspace.readUpdateError {
+                    Label(error, systemImage: "exclamationmark.circle")
+                        .font(.caption).foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                        .background(.regularMaterial)
+                        .accessibilityIdentifier("channel-read-error")
+                }
             }
         }
         .refreshable {
             await workspace.refresh()
             await workspace.loadPins()
             await workspace.calls.refreshActiveCalls()
-            if showsThreadIndex { await workspace.threads.refresh() }
         }
-        .task(id: showsThreadIndex) { if showsThreadIndex { await workspace.threads.run() } }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button("未読のみ", systemImage: unreadOnly ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle") {
@@ -207,6 +203,7 @@ struct ConversationDirectory: View {
             }
             if workspace.unread.contains(channel.id) {
                 Circle().fill(.tint).frame(width: 8, height: 8).accessibilityLabel("未読")
+                    .accessibilityIdentifier("channel-unread-\(channel.id)")
             }
         }
     }
@@ -218,14 +215,18 @@ struct ConversationDirectory: View {
                 .listRowInsets(EdgeInsets(top: directMessages ? 10 : 8, leading: 12,
                                          bottom: directMessages ? 10 : 8, trailing: 12))
                 .accessibilityIdentifier("channel-\(channel.id)")
-                .contextMenu { ChannelPinButton(channel: channel, workspace: workspace) }
-                .accessibilityHint("長押しでピン留めを変更できます")
-            if !directMessages, channel.encrypted != true {
-                ChannelThreadRows(store: workspace.threads, channelID: channel.id) { parentID in
-                    workspace.openListedThread(parentID, in: channel)
+                .contextMenu {
+                    if !directMessages, channel.encrypted != true {
+                        Button("すべて既読にする", systemImage: "checkmark.circle") {
+                            Task { await workspace.markChannelRead(channel) }
+                        }
+                        .disabled(!workspace.unread.contains(channel.id) || workspace.markingReadChannelIDs.contains(channel.id))
+                        .accessibilityIdentifier("mark-channel-read-\(channel.id)")
+                    }
+                    ChannelPinButton(channel: channel, workspace: workspace)
                 }
-                .listRowSeparator(.hidden)
-            }
+                .accessibilityHint(!directMessages && channel.encrypted != true
+                    ? "長押しで既読やピン留めを変更できます" : "長押しでピン留めを変更できます")
         }
     }
 }

@@ -55,7 +55,6 @@ final class WorkspaceStore {
     let user: Person
     let client: any ChatClient
     let inbox: InboxStore
-    let threads: ChannelThreads
     let calls: CallStore
     @ObservationIgnored weak var systemCalls: SystemCallController?
     let videoPlayback = AttachmentVideoPlayback()
@@ -65,6 +64,8 @@ final class WorkspaceStore {
     private(set) var people: [String: Person] = [:]
     @ObservationIgnored var onPeopleChanged: (() -> Void)?
     private(set) var unread: Set<String> = []
+    private(set) var markingReadChannelIDs: Set<String> = []
+    private(set) var readUpdateError: String?
     private(set) var joinedChannelIDs: Set<String> = []
     private(set) var pinnedChannelIDs: [String] = []
     private(set) var pinsError: String?
@@ -131,7 +132,7 @@ final class WorkspaceStore {
     private var destinationGeneration = UUID()
     private var channelGeneration = UUID()
     private var resolvedAuthors: [String: Person] = [:]
-    @ObservationIgnored private var readDuringRefresh: Set<String> = []
+    @ObservationIgnored private var readStateRevision = UUID()
 
     init(client: any ChatClient, user: Person, recentEmojiDefaults: UserDefaults? = .standard, calls: CallStore? = nil) {
         self.client = client
@@ -140,11 +141,9 @@ final class WorkspaceStore {
         self.calls = calls ?? CallStore(client: client, userID: user.id)
         recentEmojis = RecentEmojiStore(server: client.serverURL, userID: user.id, defaults: recentEmojiDefaults)
         inbox = InboxStore(client: client, userID: user.id)
-        threads = ChannelThreads(client: client)
         self.calls.onWillStart = { [weak self] in self?.videoPlayback.stop() }
         self.calls.onExpiredSession = { [weak self] in self?.onExpiredSession?() }
         inbox.onExpiredSession = { [weak self] in self?.onExpiredSession?() }
-        threads.onExpiredSession = { [weak self] in self?.onExpiredSession?() }
     }
 
     func name(for channel: Channel) -> String {
@@ -170,15 +169,23 @@ final class WorkspaceStore {
         guard active, !loading else { return }
         let epoch = channelGeneration
         loading = true
-        readDuringRefresh = []
-        defer { loading = false; readDuringRefresh = [] }
+        var readRevision = readStateRevision
+        defer { loading = false }
         do {
             async let channelResult = client.channels()
             async let peopleResult = client.people()
             async let readResult = client.readStates()
-            let (channels, people, states) = try await (channelResult, peopleResult, readResult)
+            let (channels, people, fetchedStates) = try await (channelResult, peopleResult, readResult)
+            var states = fetchedStates
             try Task.checkCancellation()
             guard active, channelGeneration == epoch else { return }
+            // 取得中に既読位置が変わると応答の前後を判定できないため、更新後の状態を再取得する。
+            while readRevision != readStateRevision {
+                readRevision = readStateRevision
+                states = try await client.readStates(allowCached: false)
+                try Task.checkCancellation()
+                guard active, channelGeneration == epoch else { return }
+            }
             self.channels = channels.filter { $0.deleted_at == nil }.map { incoming in
                 guard let written = channelWrites[incoming.id] else { return incoming }
                 let caughtUp = incoming.updated_at.flatMap(ZooDate.parse).map { date in
@@ -201,8 +208,8 @@ final class WorkspaceStore {
             self.people = Dictionary(people.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
             self.people.merge(resolvedAuthors) { current, _ in current }
             if self.people != previousPeople { onPeopleChanged?() }
-            // 取得開始後に確定した既読を、遅れて届く一覧の未読状態で巻き戻さない。
-            unread = Set(states.filter(\.has_unread).map(\.channel_id)).subtracting(readDuringRefresh)
+            unread = Set(states.filter(\.has_unread).map(\.channel_id))
+            readStateRevision = UUID()
             joinedChannelIDs = Set(states.map(\.channel_id))
             let visibleIDs = Set(self.channels.map(\.id))
             channelWrites = channelWrites.filter { visibleIDs.contains($0.key) }
@@ -236,6 +243,7 @@ final class WorkspaceStore {
                     channels = cached.channels.filter { $0.deleted_at == nil }.sorted { $0.channel_name.localizedStandardCompare($1.channel_name) == .orderedAscending }
                     people = Dictionary(cached.people.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
                     unread = Set(cached.readStates.filter(\.has_unread).map(\.channel_id))
+                    readStateRevision = UUID()
                     joinedChannelIDs = Set(cached.readStates.map(\.channel_id))
                     hasLoaded = true
                     onPeopleChanged?()
@@ -246,6 +254,34 @@ final class WorkspaceStore {
             await refresh()
             await loadPins()
             do { try await Task.sleep(for: .seconds(30)) } catch { return }
+        }
+    }
+
+    func markChannelRead(_ channel: Channel) async {
+        guard active, !Task.isCancelled, !channel.is_dm, channel.encrypted != true,
+              channel.deleted_at == nil, unread.contains(channel.id),
+              markingReadChannelIDs.insert(channel.id).inserted else { return }
+        readUpdateError = nil
+        defer { markingReadChannelIDs.remove(channel.id) }
+        do {
+            var readRevision = readStateRevision
+            var state = try await client.markChannelRead(channelID: channel.id)
+            try Task.checkCancellation()
+            guard active else { return }
+            // 待機中に一覧が新着を反映した可能性があるため、遅れた保存応答だけでは未読を消さない。
+            while readRevision != readStateRevision {
+                readRevision = readStateRevision
+                state = try await client.readState(channelID: channel.id, allowCached: false)
+                try Task.checkCancellation()
+                guard active else { return }
+            }
+            if state.has_unread { unread.insert(channel.id) }
+            else { unread.remove(channel.id) }
+            readStateRevision = UUID()
+        } catch {
+            guard active, !Task.isCancelled, !(error is CancellationError) else { return }
+            if case ZooError.expiredSession = error { onExpiredSession?() }
+            else { readUpdateError = "「\(name(for: channel))」を既読にできませんでした。もう一度お試しください。" }
         }
     }
 
@@ -354,7 +390,7 @@ final class WorkspaceStore {
         store.onRead = { [weak self] in
             guard let self else { return }
             unread.remove(channel.id)
-            if loading { readDuringRefresh.insert(channel.id) }
+            readStateRevision = UUID()
         }
         store.onReactionAdded = { [weak self] emoji in self?.recentEmojis.record(emoji) }
         conversations[channel.id] = store
@@ -478,15 +514,6 @@ final class WorkspaceStore {
         else { channelPath.removeLast() }
     }
 
-    func openListedThread(_ parentID: String, in channel: Channel) {
-        guard active, selectedTab == .channels, joinedChannelIDs.contains(channel.id),
-              !channel.is_dm, channel.encrypted != true else { return }
-        let store = conversation(for: channel)
-        guard !store.blocked else { report(ZooError.rejected(403, "この会話を閲覧できません。")); return }
-        store.prepareForThread(parentID)
-        channelPath = [.channel(channel.id), .thread(channelID: channel.id, parentID: parentID, focusComposer: false)]
-    }
-
     func resolveAuthors(in messages: [Message]) async {
         // 一覧 API に含まれない bot も、個別 API の閲覧権限を確認して補完する。
         let ids = Set(messages.map(\.user_id)).subtracting(people.keys)
@@ -554,7 +581,6 @@ final class WorkspaceStore {
         images.close()
         calls.shutdown()
         inbox.shutdown()
-        threads.shutdown()
         pinnedChannelIDs = []; pinsError = nil; channelMembers = [:]; memberErrors = [:]
         pinsVersion = nil; pinUpdateError = nil
         channels = []
@@ -562,6 +588,8 @@ final class WorkspaceStore {
         people = [:]
         resolvedAuthors = [:]
         unread = []
+        markingReadChannelIDs = []
+        readUpdateError = nil
         emojis = []
         emojisByKey = [:]
         emojiError = nil
