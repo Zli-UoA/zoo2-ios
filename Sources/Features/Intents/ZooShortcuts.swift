@@ -113,6 +113,16 @@ struct StartZooCallIntent: AudioPlaybackIntent {
 
 struct ZooShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
+        if #available(iOS 27.0, *) {
+            AppShortcut(intent: ZooAssistantIntent(), phrases: [
+                "\(.applicationName)アシスタント",
+                "\(.applicationName)のアシスタント",
+                "\(.applicationName)でお願い",
+                "\(.applicationName)にお願い",
+                "\(.applicationName)で通話をお願い",
+                "\(.applicationName)で誰かと話したい"
+            ], shortTitle: "Zooアシスタント", systemImageName: "waveform")
+        }
         AppShortcut(intent: SendZooMessageIntent(), phrases: [
             "\(.applicationName)で\(\.$recipient)にメッセージを送って",
             "\(.applicationName)でメッセージを送って"
