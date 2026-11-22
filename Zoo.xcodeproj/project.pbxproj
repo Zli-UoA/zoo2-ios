@@ -27,6 +27,7 @@
 		1A095FA85FC3872A764B6A70 /* MessageAttachmentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54A9ADE68E4D89ACABEC8B5E /* MessageAttachmentsView.swift */; };
 		1B7F6BCAE4C67B7914263744 /* CallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35169546CA55D414B0D9CF10 /* CallView.swift */; };
 		1E45AF3447442D972CC66160 /* ShortcutActionsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A207CEFA59094C7050CE45B8 /* ShortcutActionsUITests.swift */; };
+		2359C620647E9EC1BFC53F2A /* ZooAssistantTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01A94B8D5A0B05B6D6AF6172 /* ZooAssistantTests.swift */; };
 		26CF4C18C8BEB0A8CF709993 /* ReactionGlyph.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA787668A52085815A631603 /* ReactionGlyph.swift */; };
 		271C2664053C32BFF3DE7410 /* ConversationDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C78FF3DA140FCB63A561014 /* ConversationDestination.swift */; };
 		271D71364DCDE2BD7CF35296 /* ThreadAppearanceObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 700FE578491E5FDFF05429E3 /* ThreadAppearanceObserver.swift */; };
@@ -85,6 +86,7 @@
 		68A8F60E90FC71AB8BF78D0C /* ChatPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B38BCEDE645D8F594A866F0A /* ChatPresentationTests.swift */; };
 		6F7EC3297CC479A2FF50706E /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 84988680574ACD3D2856EBF0 /* LaunchScreen.storyboard */; };
 		6FE23D9AF44A22C289554B41 /* PushNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12854D256475220A637BE892 /* PushNotice.swift */; };
+		71AAA85BC965F4D49C955E22 /* ZooAssistantIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CEABE4CA6F968E098E52C71 /* ZooAssistantIntent.swift */; };
 		71C62DAE658AC16E4CCE58CE /* WatchCompanion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D95CB109EEB5106D7F5BA3B /* WatchCompanion.swift */; };
 		739FFABA115543EED15A1D4F /* emoji-shortcodes.json in Resources */ = {isa = PBXBuildFile; fileRef = 0D12A552929A7154204E90F7 /* emoji-shortcodes.json */; };
 		763529232B63AAA64590903B /* ConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9013878118EB556FFF8679B /* ConversationView.swift */; };
@@ -128,6 +130,7 @@
 		A8431E8A8F001AEC5FD6EB2D /* ChannelThreadsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E574B38B51C1F97994593C4 /* ChannelThreadsTests.swift */; };
 		A8522D6851CF9438AD36DDB3 /* AttachmentVideoUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59342B1C0C9D168C816DD989 /* AttachmentVideoUITests.swift */; };
 		A8DF0B20DF528316E9CCAC3D /* WatchCompanionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DB7A32EF6C9B7530C635D7E /* WatchCompanionController.swift */; };
+		A9D4F81605B34C8AE058671B /* ZooAssistant.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A48F9312BA4E25E1578E16 /* ZooAssistant.swift */; };
 		AE377E7FE1484550FAEF7A53 /* AttachmentSave.swift in Sources */ = {isa = PBXBuildFile; fileRef = B687D2613398038DA26BABDD /* AttachmentSave.swift */; };
 		B0A8370093066F0346E6D3F0 /* Message.swift in Sources */ = {isa = PBXBuildFile; fileRef = F319F936598401712D26E2BC /* Message.swift */; };
 		B0DEC1A50F89C1697A360B3F /* MessagePressFeedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C58BF4B7A5E7DDAB97714ED /* MessagePressFeedback.swift */; };
@@ -257,6 +260,7 @@
 /* Begin PBXFileReference section */
 		00DAD03EF7A4F4E6D8A3EB3C /* AppDesign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDesign.swift; sourceTree = "<group>"; };
 		019F8963EB44F005705FC8AF /* Person.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Person.swift; sourceTree = "<group>"; };
+		01A94B8D5A0B05B6D6AF6172 /* ZooAssistantTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZooAssistantTests.swift; sourceTree = "<group>"; };
 		01F4605EEE99FB8A46EE593A /* IncomingCall.caf */ = {isa = PBXFileReference; path = IncomingCall.caf; sourceTree = "<group>"; };
 		021C7A2A8F4C24BCFB0C47DB /* ChannelManagementUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelManagementUITests.swift; sourceTree = "<group>"; };
 		0475FD843E214D1E1FECC2B7 /* PDFPreviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFPreviewTests.swift; sourceTree = "<group>"; };
@@ -298,6 +302,7 @@
 		3B18DFF6412E210868419C7D /* NotificationPreviewKeyStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPreviewKeyStorage.swift; sourceTree = "<group>"; };
 		3C78FF3DA140FCB63A561014 /* ConversationDestination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationDestination.swift; sourceTree = "<group>"; };
 		3C798D4514312CC0982CDC89 /* ZooWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ZooWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		3CEABE4CA6F968E098E52C71 /* ZooAssistantIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZooAssistantIntent.swift; sourceTree = "<group>"; };
 		412038E3D7C38AA9D88ACF7E /* ThreadReplyLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadReplyLink.swift; sourceTree = "<group>"; };
 		41D090582D6B46AFBC9D093B /* TypingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypingTests.swift; sourceTree = "<group>"; };
 		48A7AE9F1620A0188FA8757C /* PreviewVideo.mp4 */ = {isa = PBXFileReference; path = PreviewVideo.mp4; sourceTree = "<group>"; };
@@ -412,6 +417,7 @@
 		DE5B4743146C553738E3F0EA /* EditMessageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditMessageView.swift; sourceTree = "<group>"; };
 		DFCA31720FB7E1D5D737C4EF /* ZooDate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZooDate.swift; sourceTree = "<group>"; };
 		E17CDC3496D288695B1949AA /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
+		E1A48F9312BA4E25E1578E16 /* ZooAssistant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZooAssistant.swift; sourceTree = "<group>"; };
 		E4A1AC523FAE860C85755B77 /* ZooCallActivityWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZooCallActivityWidget.swift; sourceTree = "<group>"; };
 		E5F20737A6001F4DD1E16732 /* AttachmentPreviewDismissTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentPreviewDismissTests.swift; sourceTree = "<group>"; };
 		E65D158B51FC23F55B9EF782 /* ChannelDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelDetailsView.swift; sourceTree = "<group>"; };
@@ -545,6 +551,7 @@
 				41D090582D6B46AFBC9D093B /* TypingTests.swift */,
 				9E1FD0671CA2C9F23958A038 /* WatchCompanionTests.swift */,
 				EC205CFCD51C565F28065B0A /* WorkspaceNavigationTests.swift */,
+				01A94B8D5A0B05B6D6AF6172 /* ZooAssistantTests.swift */,
 				B645A73FF1D4ADD1E97AD470 /* ZooTests.swift */,
 			);
 			path = Tests;
@@ -857,6 +864,8 @@
 				EAC85886AA1B8DCF3C432F37 /* SiriMessageHandler.swift */,
 				658DA7218E890A9040E0F7D1 /* SiriSettingsSection.swift */,
 				102E33938A627DB54B47D79E /* SiriVocabulary.swift */,
+				E1A48F9312BA4E25E1578E16 /* ZooAssistant.swift */,
+				3CEABE4CA6F968E098E52C71 /* ZooAssistantIntent.swift */,
 				8A7782546A5108FE43CD6F8B /* ZooCallSchemas.swift */,
 				BD210A905C644AF9486510B3 /* ZooMessageSchemas.swift */,
 				B8D75455ED3D61632AD514B1 /* ZooShortcuts.swift */,
@@ -1127,6 +1136,7 @@
 				CD9EC7A6BFBD0EFED69DFA31 /* TypingTests.swift in Sources */,
 				017F4DA879BF8E0CE588D2B8 /* WatchCompanionTests.swift in Sources */,
 				555C27FDEB909F01A39B3E06 /* WorkspaceNavigationTests.swift in Sources */,
+				2359C620647E9EC1BFC53F2A /* ZooAssistantTests.swift in Sources */,
 				F5D85CCE34285260C4DF7809 /* ZooTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1276,6 +1286,8 @@
 				644870AD45E8598058E9CC4F /* WorkspaceStore.swift in Sources */,
 				FDDE55C6277E2EA066DCE992 /* WorkspaceView.swift in Sources */,
 				CC872F1EB856FF294BB96E95 /* ZooApp.swift in Sources */,
+				A9D4F81605B34C8AE058671B /* ZooAssistant.swift in Sources */,
+				71AAA85BC965F4D49C955E22 /* ZooAssistantIntent.swift in Sources */,
 				52575C04D15F4D84406B1847 /* ZooCallActivityAttributes.swift in Sources */,
 				A40125ACF59590CFE5A3B177 /* ZooCallSchemas.swift in Sources */,
 				B3212C8778C3373FA20688B6 /* ZooDate.swift in Sources */,

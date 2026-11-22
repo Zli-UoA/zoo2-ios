@@ -28,6 +28,12 @@ struct SiriSettingsSection: View {
                 Link("iOSのZoo設定を開く", destination: settings)
                     .tint(AppDesign.externalLink)
             }
+            if #available(iOS 27.0, *) {
+                Text("「Siri、Zooアシスタント」や「Siri、Zooでお願い」で呼び出し、聞かれたら「○○につないで」のように依頼できます。相手を確認してから音声通話を始めます。")
+                Text("アシスタントは依頼とメンバー候補をAppleのPrivate Cloud Computeで解釈します。Apple Intelligenceの対応環境と通信が必要で、1日の利用上限があります。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
             NavigationLink("宛先を固定して使う") { FixedRecipientShortcutGuide() }
                 .accessibilityIdentifier("fixed-recipient-shortcut-guide")
         } header: {
