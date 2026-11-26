@@ -52,7 +52,7 @@ extension ChannelLink {
         "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._,/:%#@$&?!~=+-".unicodeScalars)
 
     /// 閉じていない括弧の対応を探す長さ。閉じない括弧が並ぶ本文で、同じ部分を繰り返し調べないようにする。
-    private static let bracketLookahead = 2048
+    private static let bracketLookahead = 1024
 
     /// `text` の先頭の `http://` か `https://` の URL。Web（`mfm-js`）と同じく、URL に使う ASCII の文字と、
     /// 対応のとれた括弧までを URL とし、末尾の `.` と `,` は除く。日本語や全角の記号が続いても、そこで終わる。
