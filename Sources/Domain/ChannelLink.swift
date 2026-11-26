@@ -44,10 +44,10 @@ extension ChannelLink {
 
     // コード・`<plain>`・サイレントリンク `?[文字](URL)` の中の URL からは、カードを作らない。
     private static let hidden = try! NSRegularExpression(
-        pattern: #"(?s)```.*?```|`[^`\n]*`|<plain>.*?</plain>|\?\[[^\]\n]*\]\([^\s)]+\)"#)
+        pattern: #"(?s)```.*?```|`[^`\n]*`|<plain>.*?</plain>|\?\[(?:[^\[\]\n]++|\[[^\[\]\n]*+\])*+\]\([^\s)]+\)"#)
     /// `[文字](URL)` は行き先だけを URL とする（文字に書いた URL は行き先ではない）。
     private static let markdown = try! NSRegularExpression(
-        pattern: #"\[[^\[\]\n]*\]\((https?://(?:[^\s()]++|\([^\s()]*+\))++)\)"#)
+        pattern: #"\[(?:[^\[\]\n]++|\[[^\[\]\n]*+\])*+\]\((https?://(?:[^\s()]++|\([^\s()]*+\))++)\)"#)
     private static let urlCharacters = Set(
         "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._,/:%#@$&?!~=+-".unicodeScalars)
 
@@ -76,7 +76,10 @@ extension ChannelLink {
             case "(", "[":
                 open.append((index, scalar == "(" ? ")" : "]"))
                 used = true
-            case ")", "]": used = open.popLast()?.1 == scalar
+            case ")", "]":
+                // 対応しないときは、開き括弧を残す（閉じていない括弧として、URL から除くため）。
+                used = open.last?.1 == scalar
+                if used { open.removeLast() }
             default: used = urlCharacters.contains(scalar)
             }
             if !used { break }

@@ -66,6 +66,12 @@ struct ChannelLinkTests {
                         String(repeating: "[](https://a", count: 3_000)] {
             _ = ChannelLink.references(in: content, server: server)
         }
+        // 対応しない閉じ括弧があれば、閉じていない括弧より前で終わる。
+        #expect(ChannelLink.leadingURL("https://a.example/x(y]") == "https://a.example/x")
+        // 角括弧を含むラベルも行き先だけを数え、サイレントリンクは数えない。
+        #expect(ChannelLink.references(in: "[$[fg.color=ff0000 \(server)/channels/a]](\(server)/channels/b)",
+                                       server: server).map(\.link.channelID) == ["b"])
+        #expect(ChannelLink.references(in: "?[a [b] c](\(server)/channels/a)", server: server).isEmpty)
         #expect(ChannelLink.references(in: "[\(server)/channels/a](\(server)/channels/b)", server: server)
             .map(\.link.channelID) == ["b"])
         #expect(ChannelLink.leadingURL("https://a.example/wiki/A_(b) x") == "https://a.example/wiki/A_(b)")
