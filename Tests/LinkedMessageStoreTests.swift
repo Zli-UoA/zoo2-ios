@@ -50,6 +50,25 @@ struct LinkedMessageStoreTests {
         store.shutdown()
     }
 
+    @Test("同時に取得するチャンネルは上限まで。使う行がない取得を止めて空ける")
+    func limitsChannels() async {
+        let source = Source()
+        let store = LinkedMessageStore(maxChannels: 1, observe: source.observe)
+        let other = LinkedMessageKey(channelID: "c2", messageID: "m1")
+        let first = Task { await store.watch([key]) }
+        await wait { source.calls.count == 1 }
+        let second = Task { await store.watch([other]) }
+        await wait { store.fetch(other) == .failed }
+        #expect(source.calls.count == 1)
+        first.cancel()
+        await wait { source.calls.count == 2 }
+        #expect(source.calls.last?.channelID == "c2")
+        #expect(store.fetch(other) == .loading(stalled: false))
+        await wait { source.stopped == 1 }
+        second.cancel()
+        store.shutdown()
+    }
+
     @Test("時間がたっても終わらなければ、読み込めなかったものとする")
     func stalls() async {
         let source = Source()

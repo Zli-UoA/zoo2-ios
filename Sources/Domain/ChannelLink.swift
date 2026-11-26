@@ -45,21 +45,71 @@ extension ChannelLink {
     // コード・`<plain>`・サイレントリンク `?[文字](URL)` の中の URL からは、カードを作らない。
     private static let hidden = try! NSRegularExpression(
         pattern: #"(?s)```.*?```|`[^`\n]*`|<plain>.*?</plain>|\?\[[^\]\n]*\]\([^\s)]+\)"#)
-    private static let candidates = try! NSRegularExpression(pattern: #"https?://[^\s<>"\[\]]+"#)
-    private static let trailing: Set<Character> = [")", ",", ".", "!", "?", "、", "。"]
+    /// `[文字](URL)` は行き先だけを URL とする（文字に書いた URL は行き先ではない）。
+    private static let markdown = try! NSRegularExpression(
+        pattern: #"\[[^\]\n]*\]\((https?://(?:[^\s()]++|\([^\s()]*+\))++)\)"#)
+    private static let urlCharacters = Set(
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._,/:%#@$&?!~=+-".unicodeScalars)
+
+    /// `text` の先頭の `http://` か `https://` の URL。Web（`mfm-js`）と同じく、URL に使う ASCII の文字と、
+    /// 対応のとれた括弧までを URL とし、末尾の句読点は除く。日本語や全角の記号が続いても、そこで終わる。
+    static func leadingURL(_ text: Substring) -> Substring? {
+        guard let scheme = ["https://", "http://"].first(where: { text.hasPrefix($0) }) else { return nil }
+        let scalars = text.unicodeScalars
+        var index = scalars.index(scalars.startIndex, offsetBy: scheme.count)
+        // 閉じていない括弧の位置と、対応する閉じ括弧。
+        var open: [(String.Index, Unicode.Scalar)] = []
+        while index < scalars.endIndex {
+            let scalar = scalars[index]
+            let used: Bool
+            switch scalar {
+            case "(", "[":
+                open.append((index, scalar == "(" ? ")" : "]"))
+                used = true
+            case ")", "]": used = open.popLast()?.1 == scalar
+            default: used = urlCharacters.contains(scalar)
+            }
+            if !used { break }
+            index = scalars.index(after: index)
+        }
+        // 閉じていない括弧は、URL に含めない。
+        var url = text[text.startIndex..<(open.first?.0 ?? index)]
+        while let last = url.last, ".,!?:".contains(last) { url.removeLast() }
+        return url.count > scheme.count ? url : nil
+    }
+
+    /// 1 つの本文から取得するリンク先のメッセージの数。他の人が書いた 1 件の投稿で、購読や要求が
+    /// 増え続けないようにする。
+    static let fetchLimit = 3
+
+    /// 本文のリンクのうち、取得するもの。`embedded`（埋め込み）を先に、続けて `bare`（URL の文字そのもの）を、
+    /// メッセージごとに数えて `fetchLimit` 件まで。チャンネルだけのリンクは取得しないので数えない。
+    static func fetched(embedded: [ChannelLink], bare: [ChannelLink]) -> [ChannelLink] {
+        var seen: Set<[String]> = []
+        return (embedded + bare).filter { link in
+            guard let messageID = link.linkedMessageID, seen.count < fetchLimit else { return false }
+            return seen.insert([link.channelID, messageID]).inserted
+        }
+    }
 
     /// 投稿の下に埋め込むアプリ内リンク。Web と同じく、本文の URL を重複を除いて先頭から 3 件まで数える。
     static func references(in content: String, server: String) -> [ChannelLinkReference] {
-        let visible = hidden.stringByReplacingMatches(
+        var visible = hidden.stringByReplacingMatches(
             in: content, range: NSRange(content.startIndex..., in: content), withTemplate: " ")
+        visible = markdown.stringByReplacingMatches(
+            in: visible, range: NSRange(visible.startIndex..., in: visible), withTemplate: " $1 ")
         var seen: Set<String> = []
         var result: [ChannelLinkReference] = []
-        for match in candidates.matches(in: visible, range: NSRange(visible.startIndex..., in: visible)) {
-            guard let range = Range(match.range, in: visible) else { continue }
-            var value = String(visible[range])
-            while let last = value.last, trailing.contains(last) { value.removeLast() }
-            guard let url = URL(string: value), url.host?.isEmpty == false, url.user == nil, url.password == nil,
-                  seen.insert(url.absoluteString).inserted else { continue }
+        var start = visible.startIndex
+        while let found = visible.range(of: "http", range: start..<visible.endIndex) {
+            guard let value = leadingURL(visible[found.lowerBound...]) else {
+                start = found.upperBound
+                continue
+            }
+            // URL の中に書いた URL は数えない。
+            start = value.endIndex
+            guard let url = URL(string: String(value)), url.host?.isEmpty == false, url.user == nil,
+                  url.password == nil, seen.insert(url.absoluteString).inserted else { continue }
             if let link = ChannelLink(url, server: server) {
                 result.append(ChannelLinkReference(url: url.absoluteString, link: link))
             }

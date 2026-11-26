@@ -106,7 +106,8 @@ struct MessageContentView: View {
             default: break
             }
         }
-        let targets = bare.map(\.1) + references.map(\.link)
+        // 取得するリンク先は本文ごとに上限がある。超えた分は、分かっていなければ URL のまま出す。
+        let targets = ChannelLink.fetched(embedded: references.map(\.link), bare: bare.map(\.1))
         // 行は画面の近くに来てから作られるので、取得もそのときに始まる。
         let linkedKeys = scenePhase == .active ? workspace.linkedKeys(for: targets) : []
         VStack(alignment: .leading, spacing: 6) {

@@ -8,10 +8,15 @@ struct LinkedMessageSync {
     let channelID: String
 
     /// `receive` には、取得が終わった ID ごとの結果を渡す。キャンセルされるか、失敗するまで戻らない。
+    /// 1 件の取得がサーバーのエラーなどで失敗しても、ほかの取得と変化の受け取りは続け、間隔を空けて取り直す。
     func observe(_ ids: [String], receive: @MainActor ([String: LinkedMessageFetch]) -> Void) async throws {
         let valid = ids.filter { UUID(uuidString: $0) != nil }
         var state = MessageSyncState()
         var needsRows = true
+        // まだ取得できていない ID と、次に取り直す時刻。
+        var pending: [String] = []
+        var retryAt = ContinuousClock.now
+        var retryDelay = 1
         var sseFailures = 0
         while !Task.isCancelled {
             if state.shape.handle == nil || state.shape.offset == "now" {
@@ -25,16 +30,31 @@ struct LinkedMessageSync {
                 }
                 continue
             }
-            if needsRows {
+            if needsRows || (!pending.isEmpty && ContinuousClock.now >= retryAt) {
+                if needsRows {
+                    pending = valid
+                    retryDelay = 1
+                    needsRows = false
+                }
+                var failed: [String] = []
                 do {
-                    for id in valid { try await load(id, state: &state) }
+                    for id in pending {
+                        do {
+                            try await load(id, state: &state)
+                        } catch where isTransient(error) {
+                            failed.append(id)
+                        }
+                    }
                 } catch MessageSyncError.reset {
                     state = MessageSyncState()
+                    needsRows = true
                     try await Task.sleep(for: .milliseconds(500))
                     continue
                 }
-                needsRows = false
-                receive(try results(ids, state: state))
+                pending = failed
+                retryAt = ContinuousClock.now + .seconds(retryDelay)
+                retryDelay = min(retryDelay * 2, 30)
+                receive(try results(ids.filter { !pending.contains($0) }, state: state))
             }
             let useSSE = state.shape.isLive && sseFailures < 3
             let started = ContinuousClock.now
@@ -43,7 +63,7 @@ struct LinkedMessageSync {
                     state = try await applyLinkedState(state, data: data, response: response)
                     // 取り直し（409・must-refetch）のあとは、上で行を取り直してから渡す。
                     if state.shape.handle != nil, state.shape.offset != "now" {
-                        receive(try results(ids, state: state))
+                        receive(try results(ids.filter { !pending.contains($0) }, state: state))
                     }
                 }
             } catch where useSSE && isSSETransportFailure(error) && !Task.isCancelled {
@@ -55,6 +75,12 @@ struct LinkedMessageSync {
             try await Task.sleep(for: .milliseconds(250))
         }
         throw CancellationError()
+    }
+
+    /// 間隔を空けてやり直せば取れる可能性がある失敗（サーバーのエラー、混雑、通信の失敗）。
+    private func isTransient(_ error: Error) -> Bool {
+        if case ZooError.rejected(let status, _) = error { return status >= 500 || status == 429 }
+        return error is URLError
     }
 
     private func query(_ state: MessageSyncState) -> [String: String] {

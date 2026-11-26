@@ -8,7 +8,9 @@ struct LinkedMessageKey: Hashable, Sendable {
 }
 
 /// 本文のリンクが指すメッセージ。チャンネルごとに 1 本の取得を、画面にある行で共有する。
-/// 同じメッセージは 1 回だけ取り、使う行がなくなって `releaseDelay` たったら止める。
+/// 同じメッセージは 1 回だけ取り、使う行がなくなって `releaseDelay` たったら止める。同時に取得する
+/// チャンネルは `maxChannels` までで、超えるときは使う行がない取得を先に止め、なければ読み込めなかった
+/// ものとして空くのを待つ。
 @Observable @MainActor
 final class LinkedMessageStore {
     /// 1 つのチャンネルの `ids` を取得し続ける（`ChatClient.observeLinkedMessages`）。
@@ -17,9 +19,14 @@ final class LinkedMessageStore {
 
     private(set) var results: [LinkedMessageKey: LinkedMessageFetch] = [:]
     private(set) var stalled: Set<LinkedMessageKey> = []
+    /// 取得するチャンネルの上限を超えて、空きを待っているチャンネル。
+    private(set) var waiting: Set<String> = []
     @ObservationIgnored private let observe: Observe
     @ObservationIgnored private let loadTimeout: Duration
     @ObservationIgnored private let releaseDelay: Duration
+    @ObservationIgnored private let maxChannels: Int
+    /// 使う行がないチャンネルを、そうなった順に並べる。
+    @ObservationIgnored private var idle: [String] = []
     /// チャンネルごとの、取得する ID と、使っている行の数。
     @ObservationIgnored private var users: [String: [String: Int]] = [:]
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
@@ -27,14 +34,17 @@ final class LinkedMessageStore {
     @ObservationIgnored private var timers: [LinkedMessageKey: Task<Void, Never>] = [:]
     @ObservationIgnored var onExpiredSession: (() -> Void)?
 
-    init(loadTimeout: Duration = .seconds(10), releaseDelay: Duration = .seconds(30), observe: @escaping Observe) {
+    init(loadTimeout: Duration = .seconds(10), releaseDelay: Duration = .seconds(30), maxChannels: Int = 8,
+         observe: @escaping Observe) {
         self.observe = observe
         self.loadTimeout = loadTimeout
         self.releaseDelay = releaseDelay
+        self.maxChannels = maxChannels
     }
 
     func fetch(_ key: LinkedMessageKey) -> LinkedMessageFetch {
-        results[key] ?? .loading(stalled: stalled.contains(key))
+        if let result = results[key] { return result }
+        return waiting.contains(key.channelID) ? .failed : .loading(stalled: stalled.contains(key))
     }
 
     /// このチャンネルで取得した行に、暗号文の行があるか。
@@ -57,21 +67,45 @@ final class LinkedMessageStore {
         tasks.values.forEach { $0.cancel() }
         releases.values.forEach { $0.cancel() }
         timers.values.forEach { $0.cancel() }
-        tasks = [:]; releases = [:]; timers = [:]; users = [:]
-        results = [:]; stalled = []
+        tasks = [:]; releases = [:]; timers = [:]; users = [:]; idle = []
+        results = [:]; stalled = []; waiting = []
     }
 
     private func acquire(_ keys: [LinkedMessageKey]) {
         for (channelID, group) in Dictionary(grouping: keys, by: \.channelID) {
             releases.removeValue(forKey: channelID)?.cancel()
+            idle.removeAll { $0 == channelID }
             var added = false
             for key in group {
                 if users[channelID]?[key.messageID] == nil { added = true }
                 users[channelID, default: [:]][key.messageID, default: 0] += 1
-                startTimer(key)
             }
-            if added || tasks[channelID] == nil { restart(channelID) }
+            if tasks[channelID] == nil {
+                waiting.insert(channelID)
+            } else if added {
+                start(channelID)
+            }
         }
+        admitWaiting()
+    }
+
+    /// 空きがあれば（使う行がない取得を止めて空けられれば）、待っているチャンネルの取得を始める。
+    private func admitWaiting() {
+        for channelID in waiting.sorted() {
+            if tasks.count >= maxChannels {
+                guard let oldest = idle.first else { return }
+                stop(oldest)
+            }
+            waiting.remove(channelID)
+            start(channelID)
+        }
+    }
+
+    private func start(_ channelID: String) {
+        for messageID in (users[channelID] ?? [:]).keys {
+            startTimer(LinkedMessageKey(channelID: channelID, messageID: messageID))
+        }
+        restart(channelID)
     }
 
     private func release(_ keys: [LinkedMessageKey]) {
@@ -80,15 +114,23 @@ final class LinkedMessageStore {
         }
         for channelID in Set(keys.map(\.channelID)) {
             guard let ids = users[channelID], ids.values.allSatisfy({ $0 == 0 }), releases[channelID] == nil else { continue }
+            // 取得を始めていないチャンネルは、待つのをやめる。
+            if waiting.remove(channelID) != nil {
+                users[channelID] = nil
+                continue
+            }
+            idle.append(channelID)
             releases[channelID] = Task { [weak self, delay = releaseDelay] in
                 do { try await Task.sleep(for: delay) } catch { return }
                 self?.stop(channelID)
             }
         }
+        admitWaiting()
     }
 
     private func stop(_ channelID: String) {
-        releases[channelID] = nil
+        releases.removeValue(forKey: channelID)?.cancel()
+        idle.removeAll { $0 == channelID }
         tasks.removeValue(forKey: channelID)?.cancel()
         for messageID in (users.removeValue(forKey: channelID) ?? [:]).keys {
             let key = LinkedMessageKey(channelID: channelID, messageID: messageID)

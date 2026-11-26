@@ -52,6 +52,27 @@ struct ChannelLinkTests {
         #expect(ChannelLink(channelID: "c", messageID: "m", threadID: "p").linkedMessageID == "m")
     }
 
+    @Test("URL は Web と同じ位置で終え、[文字](URL) は行き先だけを数える")
+    func urlEnds() {
+        let url = "\(server)/channels/a?message=m"
+        for text in ["\(url)を見て", "詳しくは\(url)。", "「\(url)」", "（\(url)）", "(\(url)).", "<\(url)>",
+                     "\(url)(未閉じ"] {
+            #expect(ChannelLink.references(in: text, server: server).map(\.url) == [url], "\(text)")
+        }
+        #expect(ChannelLink.references(in: "[\(server)/channels/a](\(server)/channels/b)", server: server)
+            .map(\.link.channelID) == ["b"])
+        #expect(ChannelLink.leadingURL("https://a.example/wiki/A_(b) x") == "https://a.example/wiki/A_(b)")
+        #expect(ChannelLink.leadingURL("https://あ") == nil)
+    }
+
+    @Test("1 つの本文から取得するのは 3 件のメッセージまで")
+    func fetchLimit() {
+        func link(_ n: Int) -> ChannelLink { ChannelLink(channelID: "c\(n)", messageID: "m\(n)") }
+        let fetched = ChannelLink.fetched(embedded: [link(2), ChannelLink(channelID: "only")],
+                                          bare: [link(1), link(2), link(3), link(4)])
+        #expect(fetched == [link(2), link(1), link(3)])
+    }
+
     @Test("コードとサイレントリンクを除き、本文の先頭 3 件の URL からアプリ内リンクを選ぶ")
     func references() {
         let content = "\(server)/channels/a `\(server)/channels/code` ?[静か](\(server)/channels/quiet)\n" +
