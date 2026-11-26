@@ -61,6 +61,11 @@ final class WorkspaceStore {
     let videoPlayback = AttachmentVideoPlayback()
     let images: RemoteImageStore
     let recentEmojis: RecentEmojiStore
+    /// 本文のリンクが指すメッセージ。
+    let links: LinkedMessageStore
+    @ObservationIgnored private let encryptedChannels: EncryptedChannelRecords
+    /// サーバーから取得したチャンネル一覧を反映したか。反映するまでは、一覧にないリンク先を「見られない」と決めない。
+    private(set) var channelsSynced = false
     private(set) var channels: [Channel] = []
     private(set) var people: [String: Person] = [:]
     @ObservationIgnored var onPeopleChanged: (() -> Void)?
@@ -135,7 +140,8 @@ final class WorkspaceStore {
     private var resolvedAuthors: [String: Person] = [:]
     @ObservationIgnored private var readStateRevision = UUID()
 
-    init(client: any ChatClient, user: Person, recentEmojiDefaults: UserDefaults? = .standard, calls: CallStore? = nil) {
+    init(client: any ChatClient, user: Person, recentEmojiDefaults: UserDefaults? = .standard, calls: CallStore? = nil,
+         encryptedChannelDefaults: UserDefaults = .standard) {
         self.client = client
         self.user = user
         images = RemoteImageStore(namespace: client.serverURL + "|" + user.id)
@@ -143,10 +149,16 @@ final class WorkspaceStore {
         recentEmojis = RecentEmojiStore(server: client.serverURL, userID: user.id, defaults: recentEmojiDefaults)
         inbox = InboxStore(client: client, userID: user.id)
         threads = ChannelThreads(client: client)
+        links = LinkedMessageStore { channelID, ids, receive in
+            try await client.observeLinkedMessages(channelID: channelID, ids: ids, receive: receive)
+        }
+        encryptedChannels = EncryptedChannelRecords(server: client.serverURL, userID: user.id,
+                                                    defaults: encryptedChannelDefaults)
         self.calls.onWillStart = { [weak self] in self?.videoPlayback.stop() }
         self.calls.onExpiredSession = { [weak self] in self?.onExpiredSession?() }
         inbox.onExpiredSession = { [weak self] in self?.onExpiredSession?() }
         threads.onExpiredSession = { [weak self] in self?.onExpiredSession?() }
+        links.onExpiredSession = { [weak self] in self?.onExpiredSession?() }
     }
 
     func name(for channel: Channel) -> String {
@@ -227,6 +239,8 @@ final class WorkspaceStore {
                 }
             }
             hasLoaded = true
+            channelsSynced = true
+            encryptedChannels.remember(self.channels.filter { $0.encrypted == true }.map(\.id))
             error = nil
             let groups = Set(self.channels.filter { $0.is_dm && $0.channel_name.hasPrefix("dm:group:") }.map(\.id))
             if !groups.isEmpty {
@@ -244,6 +258,7 @@ final class WorkspaceStore {
             do {
                 if let cached = try await client.cachedWorkspace(), active, !Task.isCancelled {
                     channels = cached.channels.filter { $0.deleted_at == nil }.sorted { $0.channel_name.localizedStandardCompare($1.channel_name) == .orderedAscending }
+                    encryptedChannels.remember(channels.filter { $0.encrypted == true }.map(\.id))
                     people = Dictionary(cached.people.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
                     unread = Set(cached.readStates.filter(\.has_unread).map(\.channel_id))
                     readStateRevision = UUID()
@@ -576,6 +591,73 @@ final class WorkspaceStore {
         }
     }
 
+    /// 本文の短い表示と埋め込みに使う、チャンネルの呼び名。DM は内部の名前を出さない。
+    func linkLabel(for channel: Channel) -> String {
+        channel.is_dm ? "ダイレクトメッセージ" : "#\(channel.channel_name)"
+    }
+
+    /// 取得が必要なリンク先。見られるチャンネルのメッセージのうち、開いている会話にないものだけを取る。
+    func linkedKeys(for targets: [ChannelLink]) -> [LinkedMessageKey] {
+        var seen = Set<LinkedMessageKey>()
+        return targets.compactMap { link in
+            guard let messageID = link.linkedMessageID, channels.contains(where: { $0.id == link.channelID }),
+                  conversations[link.channelID]?.message(id: messageID) == nil else { return nil }
+            let key = LinkedMessageKey(channelID: link.channelID, messageID: messageID)
+            return seen.insert(key).inserted ? key : nil
+        }
+    }
+
+    func linkState(_ link: ChannelLink) -> ChannelLinkState {
+        let channel = channels.first { $0.id == link.channelID }
+        var fetch = LinkedMessageFetch.loading(stalled: false)
+        var hasCiphertext = false
+        if channel != nil, let messageID = link.linkedMessageID {
+            let conversation = conversations[link.channelID].flatMap { $0.blocked ? nil : $0 }
+            if let message = conversation?.message(id: messageID) {
+                fetch = .found(message)
+            } else {
+                fetch = links.fetch(LinkedMessageKey(channelID: link.channelID, messageID: messageID))
+            }
+            let loadedCiphertext = conversation?.messages.contains(where: { $0.hasCiphertext }) == true
+            hasCiphertext = loadedCiphertext || links.hasCiphertext(channelID: link.channelID)
+        }
+        return ChannelLinkState.resolve(
+            link, channel: channel, directoryReady: channelsSynced, fetch: fetch,
+            recorded: encryptedChannels.contains(link.channelID), hasCiphertext: hasCiphertext,
+            authorName: { people[$0]?.name })
+    }
+
+    /// 本文のリンクと埋め込みカードから開く。返信と `?thread=` のリンクは、スレッドを開く。
+    func openLink(_ link: ChannelLink, parentID: String?) async {
+        guard let threadID = parentID ?? link.threadID else {
+            _ = await openMessage(channelID: link.channelID, messageID: link.linkedMessageID)
+            return
+        }
+        guard active else { return }
+        let epoch = UUID()
+        destinationGeneration = epoch
+        do {
+            let channel = try await client.channel(id: link.channelID)
+            try Task.checkCancellation()
+            guard active, destinationGeneration == epoch, channel.deleted_at == nil else { return }
+            let store = conversation(for: channel)
+            store.update(channel)
+            // 暗号化チャンネルと閲覧できない会話では、スレッドを開かずに会話だけを開く。
+            let canOpenThread = channel.encrypted != true && !store.blocked
+            if canOpenThread {
+                store.prepareForThread(threadID)
+                store.focusedMessageID = link.linkedMessageID
+            }
+            addAndOpen(channel, joined: false)
+            guard canOpenThread else { return }
+            let route = ChatRoute.thread(channelID: channel.id, parentID: threadID, focusComposer: false)
+            if channel.is_dm { dmPath.append(route) }
+            else { channelPath.append(route) }
+        } catch {
+            if destinationGeneration == epoch { report(error) }
+        }
+    }
+
     func report(_ error: Error) {
         guard active, !Task.isCancelled, !(error is CancellationError) else { return }
         if case ZooError.expiredSession = error { onExpiredSession?() }
@@ -589,6 +671,7 @@ final class WorkspaceStore {
         channelGeneration = UUID()
         conversations.values.forEach { $0.shutdown() }
         conversations.removeAll()
+        links.shutdown()
         videoPlayback.stop()
         images.close()
         calls.shutdown()

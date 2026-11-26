@@ -88,19 +88,79 @@ struct MessageContentView: View {
         })).sorted { $0.absoluteString < $1.absoluteString }
         let states = Dictionary(uniqueKeysWithValues: urls.map { ($0, workspace.images.state(for: $0)) })
         let images = states.compactMapValues { $0.inlineImage(height: emojiHeight) }
-        MessageContentText.render(parts, images: images, emojiHeight: emojiHeight)
-        .tint(AppDesign.externalLink)
+        let server = workspace.client.serverURL
+        let references = ChannelLink.references(in: message.content, server: server)
+        // URL の文字そのものを書いたリンクだけを短くする。`[文字](URL)` の URL は書き換えない。
+        let bare = parts.compactMap { part -> (URL, ChannelLink)? in
+            guard case .link(let text, let url) = part, !message.content.contains("](\(text)"),
+                  let link = ChannelLink(url, server: server) else { return nil }
+            return (url, link)
+        }
+        let shortLinks = bare.reduce(into: [URL: MessageContentText.ShortLink]()) { result, entry in
+            switch workspace.linkState(entry.1) {
+            case .message(let channel, let preview):
+                result[entry.0] = MessageContentText.ShortLink(
+                    label: "\(preview.authorName)さん: \(workspace.linkLabel(for: channel))", isMessage: true)
+            case .channel(let channel):
+                result[entry.0] = MessageContentText.ShortLink(label: workspace.linkLabel(for: channel), isMessage: false)
+            default: break
+            }
+        }
+        let targets = bare.map(\.1) + references.map(\.link)
+        // 行は画面の近くに来てから作られるので、取得もそのときに始まる。
+        let linkedKeys = scenePhase == .active ? workspace.linkedKeys(for: targets) : []
+        VStack(alignment: .leading, spacing: 6) {
+            MessageContentText.render(parts, images: images, emojiHeight: emojiHeight, shortLinks: shortLinks)
+                .tint(AppDesign.externalLink)
+            ForEach(references) { reference in
+                ChannelLinkCard(state: workspace.linkState(reference.link), workspace: workspace) { parentID in
+                    Task { await workspace.openLink(reference.link, parentID: parentID) }
+                }
+            }
+        }
+        .environment(\.openURL, OpenURLAction { url in
+            guard let link = ChannelLink(url, server: server) else { return .systemAction }
+            var parentID: String?
+            if case .message(_, let preview) = workspace.linkState(link) { parentID = preview.parentID }
+            Task { await workspace.openLink(link, parentID: parentID) }
+            return .handled
+        })
+        .task(id: linkedKeys) { await workspace.links.watch(linkedKeys) }
+        .task(id: unknownAuthors(in: targets)) {
+            // 一覧にない投稿者（Bot など）の名前を取る。
+            await workspace.resolveAuthors(in: linkedMessages(for: targets))
+        }
         .task(id: ImageLoadKey(stateID: renderState.id, urls: urls, active: scenePhase == .active)) {
             guard scenePhase == .active, !urls.isEmpty else { return }
             await workspace.images.watch(states, policy: .stored)
         }
     }
 
+    private func linkedMessages(for targets: [ChannelLink]) -> [Message] {
+        targets.compactMap { link in
+            guard let messageID = link.linkedMessageID else { return nil }
+            let key = LinkedMessageKey(channelID: link.channelID, messageID: messageID)
+            if case .found(let message) = workspace.links.fetch(key) { return message }
+            return nil
+        }
+    }
+
+    private func unknownAuthors(in targets: [ChannelLink]) -> [String] {
+        Set(linkedMessages(for: targets).map(\.user_id)).subtracting(workspace.people.keys).sorted()
+    }
+
 }
 
 @MainActor
 enum MessageContentText {
-    static func render(_ parts: [MessageContent.Part], images: [URL: UIImage], emojiHeight: CGFloat) -> Text {
+    /// このアプリのリンクの短い表示。
+    struct ShortLink: Equatable {
+        let label: String
+        let isMessage: Bool
+    }
+
+    static func render(_ parts: [MessageContent.Part], images: [URL: UIImage], emojiHeight: CGFloat,
+                       shortLinks: [URL: ShortLink] = [:]) -> Text {
         var runs: [Text] = []
         var text = AttributedString()
         func flush() {
@@ -110,7 +170,12 @@ enum MessageContentText {
             switch part {
             case .text(let value): text.append(AttributedString(value))
             case .link(let value, let url):
-                var link = AttributedString(value)
+                let short = shortLinks[url]
+                if short?.isMessage == true {
+                    flush()
+                    runs.append(Text("\(Image(systemName: "bubble.left")) ").foregroundStyle(AppDesign.externalLink))
+                }
+                var link = AttributedString(short?.label ?? value)
                 link.link = url
                 text.append(link)
             case .mention(let value, let isSelf):

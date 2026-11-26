@@ -20,6 +20,8 @@ protocol ChatClient: InboxClient, CallClient, TypingClient {
     func readStates(allowCached: Bool) async throws -> [ChannelReadState]
     func observeMessages(channelID: String, receive: @MainActor ([Message]?) -> Void) async throws
     func observeMessageFeed(channelID: String, request: MessageFeedRequest, receive: @MainActor (MessageFeedSnapshot) -> Void) async throws
+    /// 本文のリンクが指すメッセージだけを取り、編集・削除を受け取り続ける。端末には保存しない。
+    func observeLinkedMessages(channelID: String, ids: [String], receive: @MainActor ([String: LinkedMessageFetch]) -> Void) async throws
     func cachedWorkspace() async throws -> CachedWorkspace?
     func observeAttachments(channelID: String, receive: @MainActor ([MessageAttachment]?) -> Void) async throws
     func observeReactions(channelID: String, receive: @MainActor ([MessageReaction]?) -> Void) async throws

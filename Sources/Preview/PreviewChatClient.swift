@@ -363,6 +363,16 @@ final class PreviewChatClient: ChatClient {
         }
     }
 
+    func observeLinkedMessages(channelID: String, ids: [String], receive: @MainActor ([String: LinkedMessageFetch]) -> Void) async throws {
+        while !Task.isCancelled {
+            receive(Dictionary(uniqueKeysWithValues: ids.map { id in
+                (id, allMessages.first { $0.id == id && $0.channel_id == channelID }.map(LinkedMessageFetch.found) ?? .missing)
+            }))
+            try await Task.sleep(for: .seconds(1))
+        }
+        throw CancellationError()
+    }
+
     func observeMessages(channelID: String, receive: @MainActor ([Message]?) -> Void) async throws {
         if ProcessInfo.processInfo.arguments.contains("--uitesting-long-history") {
             try await Task.sleep(for: .milliseconds(300))
