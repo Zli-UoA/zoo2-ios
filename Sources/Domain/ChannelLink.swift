@@ -47,19 +47,29 @@ extension ChannelLink {
         pattern: #"(?s)```.*?```|`[^`\n]*`|<plain>.*?</plain>|\?\[[^\]\n]*\]\([^\s)]+\)"#)
     /// `[文字](URL)` は行き先だけを URL とする（文字に書いた URL は行き先ではない）。
     private static let markdown = try! NSRegularExpression(
-        pattern: #"\[[^\]\n]*\]\((https?://(?:[^\s()]++|\([^\s()]*+\))++)\)"#)
+        pattern: #"\[[^\[\]\n]*\]\((https?://(?:[^\s()]++|\([^\s()]*+\))++)\)"#)
     private static let urlCharacters = Set(
         "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._,/:%#@$&?!~=+-".unicodeScalars)
 
+    /// 閉じていない括弧の対応を探す長さ。閉じない括弧が並ぶ本文で、同じ部分を繰り返し調べないようにする。
+    private static let bracketLookahead = 2048
+
     /// `text` の先頭の `http://` か `https://` の URL。Web（`mfm-js`）と同じく、URL に使う ASCII の文字と、
-    /// 対応のとれた括弧までを URL とし、末尾の句読点は除く。日本語や全角の記号が続いても、そこで終わる。
+    /// 対応のとれた括弧までを URL とし、末尾の `.` と `,` は除く。日本語や全角の記号が続いても、そこで終わる。
     static func leadingURL(_ text: Substring) -> Substring? {
         guard let scheme = ["https://", "http://"].first(where: { text.hasPrefix($0) }) else { return nil }
         let scalars = text.unicodeScalars
         var index = scalars.index(scalars.startIndex, offsetBy: scheme.count)
         // 閉じていない括弧の位置と、対応する閉じ括弧。
         var open: [(String.Index, Unicode.Scalar)] = []
+        var beyondBracket = 0
         while index < scalars.endIndex {
+            if !open.isEmpty {
+                beyondBracket += 1
+                if beyondBracket > bracketLookahead { break }
+            } else {
+                beyondBracket = 0
+            }
             let scalar = scalars[index]
             let used: Bool
             switch scalar {
@@ -74,7 +84,7 @@ extension ChannelLink {
         }
         // 閉じていない括弧は、URL に含めない。
         var url = text[text.startIndex..<(open.first?.0 ?? index)]
-        while let last = url.last, ".,!?:".contains(last) { url.removeLast() }
+        while let last = url.last, ".,".contains(last) { url.removeLast() }
         return url.count > scheme.count ? url : nil
     }
 

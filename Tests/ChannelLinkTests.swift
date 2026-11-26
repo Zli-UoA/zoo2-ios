@@ -59,6 +59,13 @@ struct ChannelLinkTests {
                      "\(url)(未閉じ"] {
             #expect(ChannelLink.references(in: text, server: server).map(\.url) == [url], "\(text)")
         }
+        // 末尾で除くのは `.` と `,` だけ（Web と同じ）。
+        #expect(ChannelLink.leadingURL("https://a.example/x!, y") == "https://a.example/x!")
+        // 閉じない括弧や開き括弧が並んでも、すぐに終わる。
+        for content in [String(repeating: "[", count: 40_000), String(repeating: "https://a(", count: 4_000),
+                        String(repeating: "[](https://a", count: 3_000)] {
+            _ = ChannelLink.references(in: content, server: server)
+        }
         #expect(ChannelLink.references(in: "[\(server)/channels/a](\(server)/channels/b)", server: server)
             .map(\.link.channelID) == ["b"])
         #expect(ChannelLink.leadingURL("https://a.example/wiki/A_(b) x") == "https://a.example/wiki/A_(b)")
