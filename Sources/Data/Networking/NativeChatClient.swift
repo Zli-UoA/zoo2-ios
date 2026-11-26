@@ -134,6 +134,11 @@ struct NativeChatClient: ChatClient {
         return data
     }
 
+    func observeLinkedMessages(channelID: String, ids: [String], receive: @MainActor ([String: LinkedMessageFetch]) -> Void) async throws {
+        _ = try segment(channelID)
+        try await LinkedMessageSync(api: api, channelID: channelID).observe(ids, receive: receive)
+    }
+
     func observeMessages(channelID: String, receive: @MainActor ([Message]?) -> Void) async throws {
         _ = try segment(channelID)
         try await ShapeStream(api: api).observe("api/shapes/messages", query: ["channel_id": channelID],

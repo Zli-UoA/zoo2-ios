@@ -29,12 +29,18 @@ enum MessageContent {
             protected.contains { NSIntersectionRange($0, range).length > 0 }
         }
         for match in links.matches(in: text, range: full) where !overlaps(match.range) {
-            guard let range = Range(match.range, in: text) else { continue }
+            guard var range = Range(match.range, in: text) else { continue }
             // URL 内の :名前: はリンク先の一部なので、スタンプへ置き換えない。
             protected.append(match.range)
-            guard let url = match.url, let scheme = url.scheme?.lowercased(), ["https", "http"].contains(scheme),
+            guard var url = match.url, let scheme = url.scheme?.lowercased(), ["https", "http"].contains(scheme),
                   url.host?.isEmpty == false, url.user == nil, url.password == nil else { continue }
-            replacements.append((match.range, .link(String(text[range]), url)))
+            // チャンネルのリンクは、Web と同じ位置で終える（続く日本語を行き先に含めない）。
+            if url.path.hasPrefix("/channels/"), let cut = ChannelLink.leadingURL(text[range]),
+               let shorter = URL(string: String(cut)) {
+                range = range.lowerBound..<cut.endIndex
+                url = shorter
+            }
+            replacements.append((NSRange(range, in: text), .link(String(text[range]), url)))
         }
         var emojiEnd = 0
         for match in codes.matches(in: text, range: full) {
